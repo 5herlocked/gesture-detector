@@ -31,22 +31,23 @@ class TLVData:
 
 class TargetObjects(TLVData):
     NAME = 'TARGET_OBJECTS'
-    SIZE_BYTES = 32
+    SIZE_BYTES = 40
 
-    def __init(self, serial_tlv):
+    def __init__(self, serial_tlv):
         super(TargetObjects, self).__init__(serial_tlv)
 
         # unpack as defined by https://docs.python.org/3/library/struct.html
-        elements = struct.unpack('<Iffffffff', serial_tlv)
-        self.x = elements[0]
-        self.y = elements[1]
-        self.vX = elements[2]
-        self.vY = elements[3]
-        self.aX = elements[4]
-        self.aY = elements[5]
-        self.z = elements[6]
-        self.vZ = elements[7]
-        self.aZ = elements[8]
+        elements = struct.unpack('<Ifffffffff', serial_tlv)
+        self.id = elements[0]
+        self.x = elements[1]
+        self.y = elements[2]
+        self.vX = elements[3]
+        self.vY = elements[4]
+        self.aX = elements[5]
+        self.aY = elements[6]
+        self.z = elements[7]
+        self.vZ = elements[8]
+        self.aZ = elements[9]
 
 
 class TLVHeader:
@@ -99,6 +100,23 @@ class TLV:
         self.name = self.obj_class.NAME
         self.obj_size = self.obj_class.SIZE_BYTES
         tlv_sans_header = serial_tlv[TLVHeader.SIZE_BYTES:]
+        self.descriptor, processed_tlv = self.obj_class.preparsing(tlv_sans_header)
+
+        try:
+            self.objects = self.parse_objects(processed_tlv)
+        except struct.error as e:
+            print('Exception while parsing TLV objects: ', e)
+            self.objects = []
+
+    def parse_objects(self, processed_tlv):
+        objects = []
+        num_objects = int(self.header.length / self.obj_size)
+        for i in range(0, num_objects):
+            new = self.obj_class(processed_tlv[0:self.obj_size])
+            objects.append(new)
+            processed_tlv = processed_tlv[self.obj_size:]
+
+        return objects
 
 
 class FrameHeader:
@@ -118,15 +136,17 @@ class FrameHeader:
 
 class RadarFrameHeader(FrameHeader):
     SIZE_BYTES = 52
+    PACKET_LENGTH_END = 24
 
     def __init__(self, serial_header):
         super(RadarFrameHeader, self).__init__(serial_header)
         self.sync = serial_header[0:8]
         self.version = serial_header[8:12]
-        self.numDetectedObj = serial_header[12:16]
-        self.packetLen = struct.unpack('<I', serial_header[16:20])[1]
+        self.platform = serial_header[12:16]
+        self.numDetectedObj = struct.unpack('<I', serial_header[16:20])[0]
+        self.packetLen = struct.unpack('<I', serial_header[20:24])[0]
 
-        values = struct.unpack('<6I', serial_header[20:44])
+        values = struct.unpack('<6I', serial_header[24:48])
         self.frameNum = values[0]
         self.subFrameNum = values[1]
         self.chirpMargin = values[2]
@@ -134,8 +154,8 @@ class RadarFrameHeader(FrameHeader):
         self.trackTime = values[4]
         self.uartTime = values[5]
 
-        self.numTLVs = struct.unpack('<H', serial_header[44:46])[0]
-        self.checksum = struct.unpack('<H', serial_header[46:48])[0]
+        self.numTLVs = struct.unpack('<H', serial_header[48:50])[0]
+        self.checksum = struct.unpack('<H', serial_header[50:52])[0]
 
 
 class Frame:
@@ -155,7 +175,7 @@ class Frame:
         self.header = frame_type(serial_frame[0:frame_type.SIZE_BYTES])
 
         # Second sanity check
-        if frame_length < self.header.packetLength:
+        if frame_length < self.header.packetLen:
             raise FrameError('Frame is too small. Expected {} bytes, '
                              'receieved {} bytes.'.format(self.header.packetLength, frame_length))
 

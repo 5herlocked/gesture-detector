@@ -82,9 +82,6 @@ class SerialInterface:
                 length_data = ser_inst.read(frame_type.PACKET_LENGTH_END - len(Frame.FRAME_START))
                 bytes_read += len(length_data)
                 packet_length = struct.unpack('<I', length_data[-4:])[0]
-                if packet_length > 5000:
-                    print("Packet length is {} which seems too large.  Skipping...".format(packet_length))
-                    break
 
                 # Read remaining bytes specified by the header
                 remaining_data = ser_inst.read(packet_length - bytes_read)
